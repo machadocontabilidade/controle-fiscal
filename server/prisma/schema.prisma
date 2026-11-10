@@ -1,0 +1,427 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TaxRegime {
+  SIMPLES_NACIONAL
+  LUCRO_REAL
+  LUCRO_PRESUMIDO
+  NAO_INFORMADO
+}
+
+enum BranchType {
+  HEADQUARTERS
+  BRANCH
+  UNKNOWN
+}
+
+enum FilingStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  TRANSMITTED
+  COMPLETED
+  NOT_APPLICABLE
+  UNKNOWN
+}
+
+enum IntegrationStatus {
+  CONNECTED
+  ATTENTION
+  DISCONNECTED
+  DISABLED
+  NO_STATUS
+  UNKNOWN
+}
+
+enum CertificateStatus {
+  VALID
+  EXPIRING_SOON
+  EXPIRED
+  REVOKED
+  NO_CERTIFICATE
+  NO_STATUS
+  UNKNOWN
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  UNKNOWN
+}
+
+enum TaskPriority {
+  HIGH
+  MEDIUM
+  LOW
+  UNKNOWN
+}
+
+enum ImportStatus {
+  RECEIVED
+  REVIEWED
+  IMPORTED
+  FAILED
+  CANCELLED
+}
+
+model Company {
+  id                       String        @id @default(cuid())
+  /// Canonical CNPJ digits. Unique only for the current operating company registry.
+  cnpj                     String        @unique
+  cnpjDisplay              String?
+  razaoSocial              String
+  nomeFantasia             String?
+  questorCode              String?
+  inscricaoEstadual        String?
+  regime                   String
+  status                   String
+  cidade                   String?
+  uf                       String?
+  responsavel              String?
+  email                    String?
+  telefone                 String?
+  vencimento               DateTime?     @db.Timestamp(3)
+  grupo                    String?
+  observacoes              String?
+  branchType               BranchType    @default(UNKNOWN)
+  unit                     String?
+  automationGroup          String?
+  certificateSourceStatus  String?
+  zenQdriveSourceStatus    String?
+  unecontSourceStatus      String?
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
+
+  groupMemberships CompanyGroupMembership[]
+  filings          TaxFiling[]
+  certificates     DigitalCertificate[]
+  integrations     Integration[]
+  tasks            Task[]
+  auditEntries     AuditLog[]
+  sourceRecords    ImportSourceRecord[]
+
+  @@index([razaoSocial])
+  @@index([regime, status])
+  @@index([responsavel])
+  @@index([grupo])
+  @@index([questorCode])
+  @@map("Company")
+}
+
+model CompanyGroup {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  importedAt  DateTime? @db.Date
+  closingDate DateTime? @db.Date
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memberships CompanyGroupMembership[]
+  sourceRecords ImportSourceRecord[]
+
+  @@index([name])
+}
+
+model CompanyGroupMembership {
+  id          String      @id @default(cuid())
+  companyId   String
+  groupId     String
+  validFrom   DateTime?   @db.Date
+  validUntil  DateTime?   @db.Date
+  sourceRecordId String?
+  createdAt   DateTime    @default(now())
+
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  group       CompanyGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  sourceRecord ImportSourceRecord? @relation(fields: [sourceRecordId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, validFrom])
+  @@index([groupId, validFrom])
+  @@index([sourceRecordId])
+}
+
+model Obligation {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  taxRegime    TaxRegime?
+  /// Optional recurring due day (1-31). The API must validate this range.
+  dayOfMonth   Int?
+  active       Boolean  @default(true)
+  description  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  filings      TaxFiling[]
+
+  @@index([taxRegime, active])
+  @@index([name])
+}
+
+model TaxFiling {
+  id               String      @id @default(cuid())
+  companyId        String
+  obligationId     String
+  /// First calendar day of the competence month, stored as PostgreSQL DATE.
+  competence       DateTime    @db.Date
+  status           FilingStatus @default(UNKNOWN)
+  dueDate          DateTime?   @db.Date
+  sourceRecordId   String?
+  responsibleName  String?
+  notes            String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  company          Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  obligation       Obligation @relation(fields: [obligationId], references: [id], onDelete: Restrict)
+  sourceRecord     ImportSourceRecord? @relation(fields: [sourceRecordId], references: [id], onDelete: SetNull)
+  tasks            Task[]
+
+  @@unique([companyId, obligationId, competence])
+  @@index([competence, status])
+  @@index([obligationId, competence])
+  @@index([dueDate, status])
+  @@index([responsibleName, status])
+  @@index([sourceRecordId])
+}
+
+model DigitalCertificate {
+  id              String            @id @default(cuid())
+  companyId       String?
+  /// Original CNPJ text supports historical/out-of-portfolio certificates without a false company link.
+  sourceCnpj      String?
+  certificateType String
+  holderName      String?
+  issuerName      String?
+  serialNumber    String?
+  validFrom       DateTime?         @db.Date
+  validUntil      DateTime?         @db.Date
+  status          CertificateStatus @default(UNKNOWN)
+  statusAsOf      DateTime?         @db.Date
+  observations    String?
+  sourceRecordId  String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  company         Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  sourceRecord    ImportSourceRecord? @relation(fields: [sourceRecordId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, validUntil])
+  @@index([sourceCnpj])
+  @@index([status, validUntil])
+  @@index([sourceRecordId])
+}
+
+model Integration {
+  id                String            @id @default(cuid())
+  companyId         String
+  integrationKey    String
+  provider          String
+  status            IntegrationStatus @default(NO_STATUS)
+  sourceStatus      String?
+  lastSynchronizedAt DateTime?
+  responsibleName   String?
+  metadata          Json?
+  sourceRecordId    String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  company           Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  sourceRecord      ImportSourceRecord? @relation(fields: [sourceRecordId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, integrationKey])
+  @@index([provider, status])
+  @@index([companyId, status])
+  @@index([sourceRecordId])
+}
+
+model Task {
+  id              String       @id @default(cuid())
+  title           String
+  description     String?
+  companyId       String?
+  filingId        String?
+  assigneeId      String?
+  createdById     String?
+  priority        TaskPriority @default(UNKNOWN)
+  status          TaskStatus   @default(OPEN)
+  dueAt           DateTime?    @db.Date
+  completedAt     DateTime?
+  sourceRecordId  String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  company         Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  filing          TaxFiling?   @relation(fields: [filingId], references: [id], onDelete: SetNull)
+  assignee        AppUser?     @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdBy       AppUser?     @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  sourceRecord    ImportSourceRecord? @relation(fields: [sourceRecordId], references: [id], onDelete: SetNull)
+
+  @@index([status, dueAt])
+  @@index([assigneeId, status])
+  @@index([companyId, status])
+  @@index([filingId])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorId     String?
+  companyId   String?
+  action      String
+  module      String
+  detail      String?
+  beforeData  Json?
+  afterData   Json?
+  occurredAt  DateTime @default(now())
+  requestId   String?
+
+  actor       AppUser? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  company     Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@index([occurredAt])
+  @@index([actorId, occurredAt])
+  @@index([companyId, occurredAt])
+  @@index([module, action, occurredAt])
+}
+
+model AppUser {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  isActive      Boolean  @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  roles         UserRole[]
+  assignedTasks Task[]   @relation("TaskAssignee")
+  createdTasks  Task[]   @relation("TaskCreator")
+  auditEntries  AuditLog[]
+  settingsUpdated AppSetting[] @relation("SettingUpdater")
+  importBatches  ImportBatch[]
+
+  @@index([isActive, name])
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+
+  users       UserRole[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+
+  roles       RolePermission[]
+}
+
+model UserRole {
+  userId    String
+  roleId    String
+  grantedAt DateTime @default(now())
+
+  user      AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role    @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  grantedAt    DateTime @default(now())
+
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+model AppSetting {
+  id          String   @id @default(cuid())
+  scope       String   @default("global")
+  key         String
+  value       Json
+  description String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  updatedBy   AppUser? @relation("SettingUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@unique([scope, key])
+  @@index([updatedAt])
+}
+
+model ImportBatch {
+  id               String       @id @default(cuid())
+  fileName         String
+  fileSha256       String?
+  sourceSystem     String?
+  status           ImportStatus @default(RECEIVED)
+  sourceAsOf       DateTime?    @db.Date
+  importedById     String?
+  rowCount         Int?
+  errorSummary     String?
+  metadata         Json?
+  createdAt        DateTime     @default(now())
+  completedAt      DateTime?
+
+  importedBy       AppUser? @relation(fields: [importedById], references: [id], onDelete: SetNull)
+  sourceRecords    ImportSourceRecord[]
+
+  @@index([fileSha256])
+  @@index([status, createdAt])
+  @@index([sourceAsOf])
+}
+
+model ImportSourceRecord {
+  id              String   @id @default(cuid())
+  importBatchId   String
+  companyId       String?
+  groupId         String?
+  sheetName       String
+  rowNumber       Int
+  section         String?
+  /// Unmodified cell strings, including formula text where present.
+  rawValues       Json
+  /// Explicitly mapped values; absent/placeholder values must remain absent or literal, never inferred complete.
+  normalizedValues Json?
+  formulas        Json?
+  sourceKey       String?
+  createdAt       DateTime @default(now())
+
+  importBatch     ImportBatch @relation(fields: [importBatchId], references: [id], onDelete: Restrict)
+  company         Company?    @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  group           CompanyGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  memberships     CompanyGroupMembership[]
+  filings          TaxFiling[]
+  certificates     DigitalCertificate[]
+  integrations     Integration[]
+  tasks            Task[]
+
+  @@index([importBatchId, sheetName, rowNumber])
+  @@index([sheetName, rowNumber])
+  @@index([companyId, sheetName])
+  @@index([groupId])
+  @@index([sourceKey])
+}

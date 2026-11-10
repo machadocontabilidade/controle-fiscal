@@ -1,0 +1,31 @@
+node_modules/
+dist/
+server/dist/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+
+# Local fiscal source files and client/company data
+imports/
+reports/
+src/data/sourceWorkbook.json
+src/data/imported*.json
+public/data/official-data.json
+
+# Original business records, spreadsheets, certificates, and private keys
+*.xlsx
+*.xls
+*.xlsm
+*.p12
+*.pfx
+*.pem
+*.key
+*.crt
+*.cer
+*.jks
+*.keystore
