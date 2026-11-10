@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: controle-fiscal-api
+    runtime: node
+    repo: https://github.com/machadocontabilidade/controle-fiscal
+    branch: main
+    rootDir: .
+    buildCommand: npm ci && npm run build:api
+    startCommand: npm run start:api
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: FRONTEND_ORIGIN
+        value: https://controle-fiscal-ebon.vercel.app

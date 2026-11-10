@@ -5,8 +5,22 @@ import { healthRouter } from './routes/health.js'
 import { modulesRouter } from './routes/modules.js'
 
 const app = express()
+const configuredOrigins = (process.env.FRONTEND_ORIGIN ?? 'https://controle-fiscal-ebon.vercel.app')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean)
+const allowedOrigins = new Set(configuredOrigins)
+if (process.env.NODE_ENV !== 'production') allowedOrigins.add('http://localhost:5173')
+
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'http://localhost:5173')
+  const origin = req.header('Origin')
+  if (origin && !allowedOrigins.has(origin)) {
+    return res.status(403).json({ message: 'Origem não autorizada.' })
+  }
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin)
+    res.header('Vary', 'Origin')
+  }
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
   if (req.method === 'OPTIONS') return res.sendStatus(204)
@@ -24,4 +38,4 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
 })
 
 const port = Number(process.env.PORT ?? 3333)
-app.listen(port, () => console.log(`Machado Controle Fiscal API em http://localhost:${port}`))
+app.listen(port, '0.0.0.0', () => console.log(`Machado Controle Fiscal API ouvindo na porta ${port}`))
